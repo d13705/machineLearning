@@ -1,0 +1,135 @@
+---
+title: "Practical Machine Learning Project"
+author: "Diego Andrés Arias"
+date: "8/30/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+The data consists of a Training data and a Test data. The goal is predict the manner in which they did the exercise.
+
+## Data Processing
+
+We use the following libraries for this analysis.
+
+```{r, message = FALSE, warning=FALSE}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+library(corrplot) 
+library(gbm)
+library(readr)
+library(tidyr)
+```
+
+wa read the data from the .csv archive.
+
+```{r, message = FALSE, warning=FALSE}
+trainData <- read_csv("pml-training.csv")
+testfinalData <- read_csv("pml-testing.csv")
+```
+
+The dimension of the training data is `r dim(trainData)` and the testing data is `r dim(testfinalData)`. There are  `r dim(trainData)[1]` observations and `r dim(trainData)[2]` variables.
+
+## Datasets for predictions
+
+We going to split the trainData into 70% as train data and 30% as test data.
+
+```{r, message = FALSE, warning=FALSE}
+set.seed(299)
+trainIndex <- createDataPartition(trainData$classe, p = 0.7, list = FALSE)
+train1Data <- trainData[trainIndex, ]
+test1Data <- trainData[-trainIndex, ]
+```
+
+Next, we going to remove the variables with aproximately zero variance and columns with missing data.
+
+```{r, message = FALSE, warning=FALSE}
+zeroVar <- nearZeroVar(train1Data)
+train1Data <- train1Data[, -zeroVar] 
+train1Data <- train1Data[, colSums(is.na(train1Data)) == 0]
+test1Data <- test1Data[, -zeroVar]
+test1Data <- test1Data[, colSums(is.na(test1Data)) == 0]
+```
+
+Finally, we will use `r dim(train1Data)[2]` variables for our model. We compute the correlation plot with the first principal component order.
+
+```{r, message = FALSE, warning=FALSE}
+corrTrain <- cor(train1Data[, - c(1:6, 59)])
+corrplot(corrTrain, order = "FPC", method = "color", type = "lower", tl.col = "black", tl.cex = 0.5)
+```
+
+The dark blue (red) color indicate positive (negative) high correlation. We can identify the variables with high correlation, and remove the high correlate variable from the model as follow
+
+```{r, message = FALSE, warning=FALSE}
+highCorrelation <- findCorrelation(corrTrain, cutoff = 0.8)
+train1Data <- train1Data[, - highCorrelation]
+test1Data <- test1Data[, - highCorrelation]
+```
+
+
+## Models
+
+We will use two models for this project: random forest and Generalized Boosted Model
+
+### Random forest
+
+First, determine de model
+
+```{r, message=FALSE, warning=FALSE}
+controlRF <- trainControl(method = "cv", number = 2, verboseIter = FALSE)
+modelRF <- train(classe ~ ., data = train1Data, method = "rf", trControl = controlRF)
+modelRF$finalModel
+```
+
+We test the model using the testing data to obtain Accuracy
+
+```{r, message = FALSE, warning=FALSE}
+predictionRF <- predict(modelRF, newdata = test1Data)
+confusion <- confusionMatrix(predictionRF, factor(test1Data$classe))
+confusion
+```
+
+The accuracy of the random forest models is near to 1, is to high may be for overfitting.
+
+```{r}
+plot(modelRF)
+```
+
+## Generalized Boosted Regression Model
+
+```{r, message = FALSE, warning=FALSE}
+set.seed(345)
+controlGBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modGBM  <- train(classe ~ ., data=train1Data, method = "gbm", trControl = controlGBM, verbose = FALSE)
+modGBM$finalModel
+print(modGBM)
+```
+
+We predict the testing data with the GBM model
+
+```{r, message = TRUE, warning=TRUE}
+predictionGBM <- predict(modGBM, newdata=test1Data)
+confusionGBM <- confusionMatrix(predictionGBM, factor(test1Data$classe))
+confusionGBM
+```
+
+## Generalized Boosted Regression Model to validation data
+
+We going to use the Generalized Boosted regression for predict the validation data.
+
+```{r, message = FALSE, warning=FALSE}
+finalResults <- predict(modGBM, newdata = testfinalData)
+finalResults
+```
+
